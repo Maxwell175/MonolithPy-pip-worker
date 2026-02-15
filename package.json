@@ -1,0 +1,17 @@
+{
+  "name": "monolithpy-pip-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker that serves as a private PyPI proxy backed by S3-compatible storage",
+  "main": "src/worker.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
+  },
+  "devDependencies": {
+    "wrangler": "^3.99.0"
+  }
+}
+
