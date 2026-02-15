@@ -34,11 +34,20 @@ export default {
       return response;
     }
 
-    // ── 2. PARSE PACKAGE NAME ───────────────────────────────────────────
-    // pip requests /simple/<package-name>/
-    // Also handle /simple/<package-name>/index.html and <package-name>.index.html
+    // ── 2. PARSE PATH ─────────────────────────────────────────────────
+    // Supports:  /simple/numpy/  or  /main/simple/numpy/
+    // The part before /simple/ (if any) becomes a bucket key prefix.
+    // e.g. /main/simple/numpy/ → bucketPrefix="main/", pkg="numpy"
+    const simpleIdx = url.pathname.indexOf('/simple/');
+    if (simpleIdx === -1) {
+      return new Response('Private PyPI Repo Active', {
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
+
+    const bucketPrefix = url.pathname.slice(1, simpleIdx + 1).replace(/^\/+/, ''); // "main/" or ""
     const pkg = url.pathname
-      .replace(/^\/simple\//, '')
+      .slice(simpleIdx + '/simple/'.length)
       .replace(/\/index\.html$/, '')
       .replace(/\/$/, '');
 
@@ -47,6 +56,9 @@ export default {
         headers: { 'Content-Type': 'text/plain' },
       });
     }
+
+    // S3 key prefix: e.g. "main/numpy" or just "numpy"
+    const s3Prefix = bucketPrefix ? `${bucketPrefix}${pkg}` : pkg;
 
     // ── 3. BUILD S3 CLIENT ──────────────────────────────────────────────
     const client = new AwsClient({
@@ -57,7 +69,7 @@ export default {
     });
 
     // ── 4. LIST OBJECTS IN BUCKET ───────────────────────────────────────
-    const listUrl = `${env.S3_ENDPOINT}/${env.S3_BUCKET_NAME}?list-type=2&prefix=${encodeURIComponent(pkg)}/`;
+    const listUrl = `${env.S3_ENDPOINT}/${env.S3_BUCKET_NAME}?list-type=2&prefix=${encodeURIComponent(s3Prefix)}/`;
     const s3Response = await client.fetch(listUrl);
 
     if (s3Response.status === 404 || s3Response.status === 403) {
