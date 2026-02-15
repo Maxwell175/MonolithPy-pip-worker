@@ -36,7 +36,11 @@ export default {
 
     // ── 2. PARSE PACKAGE NAME ───────────────────────────────────────────
     // pip requests /simple/<package-name>/
-    const pkg = url.pathname.replace(/^\/simple\//, '').replace(/\/$/, '');
+    // Also handle /simple/<package-name>/index.html and <package-name>.index.html
+    const pkg = url.pathname
+      .replace(/^\/simple\//, '')
+      .replace(/\/index\.html$/, '')
+      .replace(/\/$/, '');
 
     if (!pkg) {
       return new Response('Private PyPI Repo Active', {
