@@ -34,6 +34,25 @@ export default {
       return response;
     }
 
+    // ── DUMMY EMPTY ZIP ─────────────────────────────────────────────────
+    // Respond to /dummy/empty/<anything>.zip with a minimal valid zip file.
+    // We (ab)use this as a placeholder for pip sources, but the file names need to be distinct.
+    if (/^\/dummy\/empty\/.*\.zip$/i.test(url.pathname)) {
+      // Minimal empty zip: end-of-central-directory record (22 bytes)
+      const emptyZip = new Uint8Array([
+        0x50, 0x4b, 0x05, 0x06, // EOCD signature
+        0x00, 0x00, 0x00, 0x00, // disk numbers
+        0x00, 0x00, 0x00, 0x00, // entry counts
+        0x00, 0x00, 0x00, 0x00, // central directory size & offset
+        0x00, 0x00,             // comment length
+      ]);
+      return new Response(emptyZip, {
+        headers: {
+          'Content-Type': 'application/zip',
+        },
+      });
+    }
+
     // ── 2. PARSE PATH ─────────────────────────────────────────────────
     // Supports:  /simple/numpy/  or  /main/simple/numpy/
     // The part before /simple/ (if any) becomes a bucket key prefix.
