@@ -38,12 +38,43 @@ export default {
     // Respond to /dummy/empty/<anything>.zip with a minimal valid zip file.
     // We (ab)use this as a placeholder for pip sources, but the file names need to be distinct.
     if (/^\/dummy\/empty\/.*\.zip$/i.test(url.pathname)) {
-      // Minimal empty zip: end-of-central-directory record (22 bytes)
       const emptyZip = new Uint8Array([
-        0x50, 0x4b, 0x05, 0x06, // EOCD signature
+        // ── Local file header ──
+        0x50, 0x4b, 0x03, 0x04, // signature
+        0x14, 0x00,             // version needed (2.0)
+        0x00, 0x00,             // flags
+        0x00, 0x00,             // compression: stored
+        0x00, 0x00, 0x21, 0x58, // mod time/date (2024-01-01 00:00)
+        0x00, 0x00, 0x00, 0x00, // crc-32
+        0x00, 0x00, 0x00, 0x00, // compressed size
+        0x00, 0x00, 0x00, 0x00, // uncompressed size
+        0x05, 0x00,             // filename length
+        0x00, 0x00,             // extra field length
+        0x65, 0x6d, 0x70, 0x74, 0x79, // filename: "empty"
+        // ── Central directory entry ──
+        0x50, 0x4b, 0x01, 0x02, // signature
+        0x14, 0x00,             // version made by
+        0x14, 0x00,             // version needed
+        0x00, 0x00,             // flags
+        0x00, 0x00,             // compression: stored
+        0x00, 0x00, 0x21, 0x58, // mod time/date
+        0x00, 0x00, 0x00, 0x00, // crc-32
+        0x00, 0x00, 0x00, 0x00, // compressed size
+        0x00, 0x00, 0x00, 0x00, // uncompressed size
+        0x05, 0x00,             // filename length
+        0x00, 0x00,             // extra field length
+        0x00, 0x00,             // file comment length
+        0x00, 0x00,             // disk number start
+        0x00, 0x00,             // internal file attributes
+        0x80, 0x01, 0x00, 0x00, // external file attributes
+        0x00, 0x00, 0x00, 0x00, // local header offset
+        0x65, 0x6d, 0x70, 0x74, 0x79, // filename: "empty"
+        // ── End of central directory ──
+        0x50, 0x4b, 0x05, 0x06, // signature
         0x00, 0x00, 0x00, 0x00, // disk numbers
-        0x00, 0x00, 0x00, 0x00, // entry counts
-        0x00, 0x00, 0x00, 0x00, // central directory size & offset
+        0x01, 0x00, 0x01, 0x00, // 1 entry
+        0x33, 0x00, 0x00, 0x00, // central directory size
+        0x23, 0x00, 0x00, 0x00, // central directory offset
         0x00, 0x00,             // comment length
       ]);
       return new Response(emptyZip, {
