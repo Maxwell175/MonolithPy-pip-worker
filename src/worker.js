@@ -7,8 +7,9 @@ import { AwsClient } from 'aws4fetch';
  *   - If found  → generates a PEP 503 index.html with direct download links.
  *   - If missing → returns a 302 redirect to the public PyPI index.
  *
- * Aggressive caching keeps S3 list calls to a minimum so you stay in the free tier.
- *
+ * Aggressive caching keeps S3 list calls to a minimum so you stay in the free tier.                                     *
+ * PEP 658: if a `<wheel>.metadata` sibling object exists next to a wheel, the                                           * generated link is tagged with data-core-metadata="true" so pip can prefetch
+ * the METADATA file during resolution instead of downloading the whole wheel.                                           *
  * Required secrets (set via `npx wrangler secret put <NAME>`):
  *   S3_ENDPOINT        – e.g. https://s3.us-west-002.backblazeb2.com
  *   S3_BUCKET_NAME     – e.g. my-pypi-repo
@@ -19,7 +20,7 @@ import { AwsClient } from 'aws4fetch';
  * Optional vars (wrangler.toml [vars]):
  *   CACHE_TTL          – seconds to cache responses (default 86400 = 24 h)
  *   S3_PUBLIC_URL      – public download base URL if different from S3_ENDPOINT
- */
+ */                                                                                                                   
 
 export default {
   async fetch(request, env, ctx) {
@@ -85,9 +86,8 @@ export default {
     }
 
     // ── 2. PARSE PATH ─────────────────────────────────────────────────
-    // Supports:  /simple/numpy/  or  /main/simple/numpy/
-    // The part before /simple/ (if any) becomes a bucket key prefix.
-    // e.g. /main/simple/numpy/ → bucketPrefix="main/", pkg="numpy"
+    // Supports:  /simple/numpy/  or  /main/simple/numpy/  or  /builds/42-abc1234/simple/numpy/
+    // Everything before /simple/ becomes a bucket key prefix.
     const simpleIdx = url.pathname.indexOf('/simple/');
     if (simpleIdx === -1) {
       return new Response('Private PyPI Repo Active', {
@@ -95,7 +95,7 @@ export default {
       });
     }
 
-    const bucketPrefix = url.pathname.slice(1, simpleIdx + 1).replace(/^\/+/, ''); // "main/" or ""
+    const bucketPrefix = url.pathname.slice(1, simpleIdx + 1).replace(/^\/+/, '');
     const pkg = url.pathname
       .slice(simpleIdx + '/simple/'.length)
       .replace(/\/index\.html$/, '')
@@ -107,7 +107,7 @@ export default {
       });
     }
 
-    // S3 key prefix: e.g. "main/numpy" or just "numpy"
+    // S3 key prefix: e.g. "main/numpy" or "builds/42-abc1234/numpy"
     const s3Prefix = bucketPrefix ? `${bucketPrefix}${pkg}` : pkg;
 
     // ── 3. BUILD S3 CLIENT ──────────────────────────────────────────────
@@ -147,12 +147,23 @@ export default {
     // Bucket is public – link directly to the objects, no signing needed.
     const publicBase = (env.S3_PUBLIC_URL || env.S3_ENDPOINT).replace(/\/$/, '');
     const keys = [...xml.matchAll(/<Key>(.*?)<\/Key>/g)].map((m) => m[1]);
+
+    // Build a set of PEP 658 sidecar keys so we can (a) skip them in the link
+    // list and (b) tag their parent wheel link with data-core-metadata.
+    const metadataKeys = new Set(
+      keys.filter((k) => k.endsWith('.metadata'))
+    );
+
     const links = keys
+      .filter((key) => !key.endsWith('.metadata'))
       .map((key) => {
         const filename = key.split('/').pop();
         if (!filename) return '';
         const href = `${publicBase}/${env.S3_BUCKET_NAME}/${key}`;
-        return `    <a href="${href}">${filename}</a>`;
+        const attrs = metadataKeys.has(`${key}.metadata`)
+          ? ' data-core-metadata="true" data-dist-info-metadata="true"'
+          : '';
+        return `    <a href="${href}"${attrs}>${filename}</a>`;
       })
       .filter(Boolean);
 
@@ -176,6 +187,3 @@ export default {
     return response;
   },
 };
-
-
-
