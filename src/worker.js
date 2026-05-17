@@ -5,11 +5,11 @@ import { AwsClient } from 'aws4fetch';
  *
  * Checks a public S3-compatible bucket for a matching package folder.
  *   - If found  → generates a PEP 503 index.html with direct download links.
- *   - If missing → returns a 302 redirect to the public PyPI index.
+ *   - If missing or only dotfiles exist → returns a 302 redirect to the public PyPI index.
  *
- * Aggressive caching keeps S3 list calls to a minimum so you stay in the free tier.                                     *
- * PEP 658: if a `<wheel>.metadata` sibling object exists next to a wheel, the                                           * generated link is tagged with data-core-metadata="true" so pip can prefetch
- * the METADATA file during resolution instead of downloading the whole wheel.                                           *
+ * Aggressive caching keeps S3 list calls to a minimum so you stay in the free tier.                                       *
+ * PEP 658: if a `<wheel>.metadata` sibling object exists next to a wheel, the                                             * generated link is tagged with data-core-metadata="true" so pip can prefetch
+ * the METADATA file during resolution instead of downloading the whole wheel.                                             *
  * Required secrets (set via `npx wrangler secret put <NAME>`):
  *   S3_ENDPOINT        – e.g. https://s3.us-west-002.backblazeb2.com
  *   S3_BUCKET_NAME     – e.g. my-pypi-repo
@@ -20,7 +20,7 @@ import { AwsClient } from 'aws4fetch';
  * Optional vars (wrangler.toml [vars]):
  *   CACHE_TTL          – seconds to cache responses (default 86400 = 24 h)
  *   S3_PUBLIC_URL      – public download base URL if different from S3_ENDPOINT
- */                                                                                                                   
+ */                                                                                                                        
 
 export default {
   async fetch(request, env, ctx) {
@@ -130,8 +130,17 @@ export default {
     const xml = await s3Response.text();
 
     // ── 5. DECIDE: REDIRECT OR GENERATE INDEX ───────────────────────────
-    if (!xml.includes('<Key>')) {
-      // Package not found in our bucket → cache the redirect so we don't
+    const keys = [...xml.matchAll(/<Key>(.*?)<\/Key>/g)].map((m) => m[1]);
+    
+    // Check if we have any actual package files. 
+    // Ignore empty filenames (directory markers) and files starting with '.'
+    const hasVisibleFiles = keys.some((key) => {
+      const filename = key.split('/').pop();
+      return filename && !filename.startsWith('.');
+    });
+
+    if (!hasVisibleFiles) {
+      // Package not found in our bucket (or only dotfiles exist) → cache the redirect so we don't
       // keep asking S3 for packages we don't host.
       response = new Response(null, {
         status: 302,
@@ -146,7 +155,6 @@ export default {
     // ── 6. GENERATE PEP 503 INDEX ───────────────────────────────────────
     // Bucket is public – link directly to the objects, no signing needed.
     const publicBase = (env.S3_PUBLIC_URL || env.S3_ENDPOINT).replace(/\/$/, '');
-    const keys = [...xml.matchAll(/<Key>(.*?)<\/Key>/g)].map((m) => m[1]);
 
     // Build a set of PEP 658 sidecar keys so we can (a) skip them in the link
     // list and (b) tag their parent wheel link with data-core-metadata.
@@ -155,10 +163,13 @@ export default {
     );
 
     const links = keys
-      .filter((key) => !key.endsWith('.metadata'))
+      // Also filter out dotfiles from the generated index just to be clean
+      .filter((key) => {
+        const filename = key.split('/').pop();
+        return filename && !filename.startsWith('.') && !key.endsWith('.metadata');
+      })
       .map((key) => {
         const filename = key.split('/').pop();
-        if (!filename) return '';
         const href = `${publicBase}/${env.S3_BUCKET_NAME}/${key}`;
         const attrs = metadataKeys.has(`${key}.metadata`)
           ? ' data-core-metadata="true" data-dist-info-metadata="true"'
